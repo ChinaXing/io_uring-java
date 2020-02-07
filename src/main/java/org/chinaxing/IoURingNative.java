@@ -8,10 +8,15 @@ package org.chinaxing;
  * this is a low level and raw interface
  */
 public class IoURingNative {
+	// holder of pointer of io_uring instance
+	private long _ring;
+	
 	static {
 		System.loadLibrary("Lib-io-uring-jni");
+		initIDs();
 	}
-	private long _this; // holder of pointer of io_uring instance
+	
+	private native static final void initIDs();
 
 	private final int queueDepth;
 	private final long flags;
@@ -28,9 +33,13 @@ public class IoURingNative {
 	}
 
     // int io_uring_queue_init(unsigned entries, struct io_uring *ring, unsigned flags)
-	private native void init0(int queueDepth, long flags);
+	private native int init0(int queueDepth, long flags);
+	
 	public void init() {
-		init0(queueDepth, flags);
+		int ret = init0(queueDepth, flags);
+		if (ret < 0) {
+			throw new RuntimeException("initialize ret :" + ret);
+		}
 	}
     //void io_uring_queue_exit(struct io_uring *ring)
 	private native void exit0();
@@ -49,7 +58,15 @@ public class IoURingNative {
     public native int registerFiles(int[] fds);
     public native int unregisterFiles();
 
-    /**  ------------- PREPARE READ/WRITE ----------- **/
+    /**  ------------- PREPARE READ/WRITE -----------
+	 *
+	 *   <b>Don't exchange SQE, CQE structure cross JNI:</b>
+	 *
+	 *   for prepare request, we need associate sqe with cqe
+	 *   we need user pass reqId when prepare request
+	 *
+	 *   when request was completed, return the reqId (and retCode) from Native side
+     **/
     // static inline void io_uring_prep_read(struct io_uring_sqe *sqe, int fd, void *buf, unsigned nbytes, off_t offset)
     // static inline void io_uring_prep_readv(struct io_uring_sqe *sqe, int fd, const struct iovec *iovecs, unsigned nr_vecs, off_t offset)
     // static inline void io_uring_prep_read_fixed(struct io_uring_sqe *sqe, int fd, void *buf, unsigned nbytes, off_t offset, int buf_index)
@@ -59,16 +76,16 @@ public class IoURingNative {
     // static inline void io_uring_prep_write_fixed(struct io_uring_sqe *sqe, int fd, const void *buf, unsigned nbytes, off_t offset, int buf_index)
     //
     // static inline void io_uring_prep_fsync(struct io_uring_sqe *sqe, int fd, unsigned fsync_flags)
-
-	public native void prepareRead(long sqe, int fd, long buf, int bytes, long offset);
-	public native void prepareReads(long sqe, int fd, long[] buf, int[] bytes, long offset);
-	public native void prepareReadFixed(long sqe, int fd, long buf, int bytes, long offset, int bufIndex);
 	
-	public native void prepareWrite(long sqe, int fd, long buf, int bytes, long offset);
-	public native void prepareWrites(long sqe, int fd, long[] buf, int[] bytes, long offset);
-	public native void prepareWriteFixed(long sqe, int fd, long[] buf, int[] bytes, long offset);
+	public native int prepareRead(long reqId, long flags, int fd, long buf, int bytes, long offset);
+	public native int prepareReads(long reqId, long flags, int fd, long[] buf, int[] bytes, long offset);
+	public native int prepareReadFixed(long reqId, long flags, int fd, long buf, int bytes, long offset, int bufIndex);
 	
-	public native void prepareFsync(long sqe, int fd, long flags);
+	public native int prepareWrite(long reqId, long flags, int fd, long buf, int bytes, long offset);
+	public native int prepareWrites(long reqId, long flags, int fd, long[] buf, int[] bytes, long offset);
+	public native int prepareWriteFixed(long reqId, long flags, int fd, long buf, int bytes, long offset, int bufIndex);
+	
+	public native int prepareFsync(long reqId, long flags, int fd, long syncFlags);
 	
     /** ------------------------ REQUEST / RESPONSE ------------------ **/
     // extern struct io_uring_sqe *io_uring_get_sqe(struct io_uring *ring);
@@ -90,17 +107,10 @@ public class IoURingNative {
     // static inline void io_uring_cqe_seen(struct io_uring *ring, struct io_uring_cqe *cqe)
     // static inline void io_uring_cq_advance(struct io_uring *ring, unsigned nr)
     
-    public native long getSQEntry();
-    public native void setSQEntryFlags(long sqe, long flags);
-    public native void setSQEntryCookie(long sqe, long cookie);
-    public native long getCQEntryCookie(long cqe);
     public native int submit();
     public native int submitAndWait(int waitNr);
-    public native int waitCQEntryTimeout(long[] cqes, long millis);
-    public native int waitCQEntry(long[] cqes);
-    public native int waitCQEntries(long[] cqes, int waitNr);
-    public native int peekCQEntries(long[] cqes, int count);
-    public native int peekCQEntry(long[] cqes);
-    public native void seenCQEntry(long cqe);
+    public native int waitCQEntryTimeout(long[] reqIds, long[] retCodes, long millis);
+    public native int waitCQEntries(long[] reqIds, long[] retCodes, int waitNr);
+    public native int peekCQEntries(long[] reqIds, long[] retCodes, int count);
     public native void advanceCQ(int nr);
 }
