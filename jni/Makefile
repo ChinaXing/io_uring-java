@@ -1,6 +1,6 @@
 JAVA_HOME=/opt/taobao/java
 CC = gcc
-FLAGS = -std=gnu99 
+FLAGS = -std=gnu99 -D_REENTRANT -Wl,-export-dynamic
 INCLUDE = -I . -I ${JAVA_HOME}/include -I ${JAVA_HOME}/include/linux/ 
 
 all: iouringjni.so

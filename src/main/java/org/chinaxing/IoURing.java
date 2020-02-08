@@ -119,7 +119,7 @@ public class IoURing {
 	private static final long _FD_OFFSET;
 	static {
 		try {
-			_FD_OFFSET = unsafe.objectFieldOffset(FileDescriptor.class.getField("fd"));
+			_FD_OFFSET = unsafe.objectFieldOffset(FileDescriptor.class.getDeclaredField("fd"));
 		}catch (NoSuchFieldException e) {
 			throw new RuntimeException(e);
 		}

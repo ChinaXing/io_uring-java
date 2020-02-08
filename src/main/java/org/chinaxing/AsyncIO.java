@@ -27,6 +27,7 @@ public class AsyncIO {
 	public AsyncIO(String name, int queueDepth, int flags) {
 		this.name = name;
 		ring = new IoURing(queueDepth, flags);
+		new IoCompletionLoopThread().start();
 	}
 	
 	public CompletableFuture<Long> prepareRead(FileDescriptor fd, long offset, byte[] buf, int bufPos, int len) {

@@ -32,7 +32,7 @@ static struct iovec * build_iovecs(JNIEnv *env, jlongArray buffers, jlongArray l
 
 jfieldID ring_fid;
 
-JNIEXPORT void JNICALL Java_org_chinaxing_IOURingNative_initIDs(JNIEnv * env, jclass clz)
+JNIEXPORT void JNICALL Java_org_chinaxing_IoURingNative_initIDs(JNIEnv * env, jclass clz)
 {
     ring_fid = (*env)->GetFieldID(env, clz, "_ring", "J");
 }

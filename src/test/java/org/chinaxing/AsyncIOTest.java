@@ -9,6 +9,7 @@ import java.io.RandomAccessFile;
 public class AsyncIOTest {
 	@Test
 	public void copy() throws Exception {
+		System.out.println(System.getProperty("java.library.path"));
 		File src = File.createTempFile("io-uring-cp", "src");
 		File dst = File.createTempFile("io-uring-cp", "dst");
 		
