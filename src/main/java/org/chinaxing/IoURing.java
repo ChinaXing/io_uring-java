@@ -1,11 +1,16 @@
 package org.chinaxing;
 
+import org.chinaxing.exception.PrepareRWException;
+import org.chinaxing.exception.SubmitException;
+import org.chinaxing.exception.WaitCQEException;
 import sun.misc.Unsafe;
 import sun.nio.ch.DirectBuffer;
 
 import java.io.FileDescriptor;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -43,7 +48,9 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class IoURing {
     private final IoURingNative _native;
-    public static class Flags {
+	
+	
+	public static class Flags {
         //#define IORING_SETUP_IOPOLL     (1U << 0)       /* io_context is polled */
         //#define IORING_SETUP_SQPOLL     (1U << 1)       /* SQ poll thread */
         //#define IORING_SETUP_SQ_AFF     (1U << 2)       /* sq_thread_cpu is valid */
@@ -57,8 +64,35 @@ public class IoURing {
         public static final int CLAMP  = (1 << 4);
         public static final int ATTACH_WQ = (1 << 5);
     }
+    
+    public static class IOResult {
+    	public final long reqId;
+    	public final long res;
 	
+		public IOResult(long reqId, long res) {
+			this.reqId = reqId;
+			this.res = res;
+		}
+	}
+    
+    public static class ReadIOCtx {
+    	public final long reqId;
+    	// user supplied read dest byte[]
+    	public final byte[] outputBytes;
+    	public final int outputOffset;
+		// underline directBuffer io_uring used
+    	public final ByteBuffer directBuffer;
+	
+		public ReadIOCtx(long reqId, byte[] buf, int offset, ByteBuffer dBuf) {
+			this.reqId = reqId;
+			this.outputBytes = buf;
+			this.outputOffset = offset;
+			this.directBuffer = dBuf;
+		}
+	}
+ 
 	private final AtomicLong requestID = new AtomicLong(0);
+	private final Map<Long, ReadIOCtx> readIOCtxMap = new ConcurrentHashMap<>();
     
     public IoURing(int queueDepth, int flags) {
         this._native = new IoURingNative(queueDepth, flags);
@@ -67,6 +101,7 @@ public class IoURing {
     
     public void shutdown() {
         this._native.exit();
+        readIOCtxMap.clear();
     }
     
 
@@ -102,39 +137,92 @@ public class IoURing {
      *
      * REQUEST/COMPLETION
      */
-     
-     public long prepareRead(FileDescriptor fd, long offset, byte[] buf, int bufPos, int len) {
-     	int fd0 = getFd(fd);
-		 long reqId = requestID.incrementAndGet();
-		 DirectBuffer dBuf = (DirectBuffer) ByteBuffer.allocateDirect(len);
-		 int ret = _native.prepareRead(reqId, 0, fd0, dBuf.address(), len, offset);
-		 if(ret != 0) {
-		 	return ret;
-		 }
-     	return reqId;
-     }
+
+	public long prepareRead(FileDescriptor fd, long offset, byte[] bytes, int bufPos, int len) {
+		int fd0 = getFd(fd);
+		long reqId = requestID.incrementAndGet();
+		ByteBuffer buf = ByteBuffer.allocateDirect(len);
+		DirectBuffer dBuf = (DirectBuffer) buf;
+		int ret = _native.prepareRead(reqId, 0, fd0, dBuf.address(), len, offset);
+		if (ret != 0) {
+			dBuf.cleaner().clean();
+			throw new PrepareRWException("ret: " + ret);
+		}
+		readIOCtxMap.put(reqId, new ReadIOCtx(reqId, bytes, bufPos, buf));
+		return reqId;
+	}
 	
-	/**
-	 * submit prepared requests
-	 *
-	 * @throws CompletionQueueOverflowException when cq is full
-	 */
+	public long prepareWrite(FileDescriptor fd, long offset, byte[] bytes, int bufPos, int len) {
+		int fd0 = getFd(fd);
+		long reqId = requestID.incrementAndGet();
+		ByteBuffer buf = ByteBuffer.allocateDirect(len);
+		buf.put(bytes, bufPos, len);
+		int ret = _native.prepareWrite(reqId, 0, fd0, ((DirectBuffer) buf).address(), len, offset);
+		if(ret != 0) {
+			((DirectBuffer)buf).cleaner().clean();
+			throw new PrepareRWException("ret: " + ret);
+		}
+		return reqId;
+	}
+	
+	
 	public void submit() {
      	int ret = _native.submit();
-     	// TODO: handle submit failure, eg: completion Queue is overflow etc.
+     	if(ret != 0) {
+     		throw new SubmitException("ret: " + ret);
+		}
      }
      
-     public void waitCQEntry(long[] reqIds, long[] retCodes) {
-		 int ret = _native.waitCQEntries(reqIds, retCodes, 1);
-		 // TODO: if ret != 0, throw exception
+     public IOResult waitCQEntry() {
+		 IOResult result = waitCQEntries(1);
+		 postProcessRead(result);
+		 return result;
      }
+	
+	public IOResult waitCQEntries(int nr) {
+		long[] reqIds = new long[1], retCodes = new long[1];
+		int ret = _native.waitCQEntries(reqIds, retCodes, nr);
+		if(ret != 0) {
+			throw new WaitCQEException("ret: " + ret);
+		}
+		IOResult result = new IOResult(reqIds[0], retCodes[0]);
+		postProcessRead(result);
+		return result;
+	}
      
      public void seenCQEntry(int n) {
      	_native.advanceCQ(n);
      }
+	
+	public IOResult[] peekCQEntries(int nr) {
+		long[] reqIds = new long[nr], retCodes = new long[nr];
+		int cnt = _native.peekCQEntries(reqIds, retCodes, nr);
+		IOResult[] result = new IOResult[cnt];
+		for (int i = 0; i < cnt; i++) {
+			result[i] = new IOResult(reqIds[i], retCodes[i]);
+			postProcessRead(result[i]);
+		}
+		return result;
+	}
      
-     public void peekCQEntries(long[] reqIds, long[] retCodes, int nr) {
-		 int ret = _native.peekCQEntries(reqIds, retCodes, nr);
-		 // TODO: if ret != 0, throw exception
+     public IOResult waitCQEntryTimeout(long ms) {
+     	long[] reqIds = new long[1], retCodes = new long[1];
+     	int ret = _native.waitCQEntryTimeout(reqIds, retCodes, ms);
+		 if(ret != 0) {
+			 throw new WaitCQEException("ret: " + ret);
+		 }
+		 IOResult result = new IOResult(reqIds[0], retCodes[0]);
+		 postProcessRead(result);
+		 return result;
+     }
+     
+     private void postProcessRead(IOResult ioResult) {
+		 ReadIOCtx ctx = readIOCtxMap.remove(ioResult.reqId);
+		 if(ctx != null) {
+		 	if(ioResult.res > 0) {
+				ctx.directBuffer.get(ctx.outputBytes, ctx.outputOffset, (int)ioResult.res);
+			}
+			 ((DirectBuffer)ctx.directBuffer).cleaner().clean();
+		 }
      }
 }

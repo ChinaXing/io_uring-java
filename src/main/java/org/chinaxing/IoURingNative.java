@@ -12,7 +12,7 @@ public class IoURingNative {
 	private long _ring;
 	
 	static {
-		System.loadLibrary("Lib-io-uring-jni");
+		System.loadLibrary("iouringjni");
 		initIDs();
 	}
 	

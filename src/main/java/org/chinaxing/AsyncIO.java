@@ -1,13 +1,12 @@
 package org.chinaxing;
 
-import java.io.File;
+import org.chinaxing.IoURing.IOResult;
+import org.chinaxing.exception.IoURingException;
+
 import java.io.FileDescriptor;
-import java.nio.channels.FileChannel;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * capabilities:
@@ -32,6 +31,13 @@ public class AsyncIO {
 	
 	public CompletableFuture<Long> prepareRead(FileDescriptor fd, long offset, byte[] buf, int bufPos, int len) {
 		long reqId = ring.prepareRead(fd, offset, buf, bufPos, len);
+		CompletableFuture<Long> future = new CompletableFuture<>();
+		ioRequestFutures.put(reqId, future);
+		return future;
+	}
+	
+	public CompletableFuture<Long> prepareWrite(FileDescriptor fd, long offset, byte[] buf, int bufPos, int len) {
+		long reqId = ring.prepareWrite(fd, offset, buf, bufPos, len);
 		CompletableFuture<Long> future = new CompletableFuture<>();
 		ioRequestFutures.put(reqId, future);
 		return future;
@@ -62,13 +68,16 @@ public class AsyncIO {
 		
 		private void pollCQ() {
 			while (true) {
-				long[] reqIds = new long[1], retCodes = new long[1];
-				ring.waitCQEntry(reqIds, retCodes);
-				CompletableFuture<Long> future = ioRequestFutures.get(reqIds[0]);
-				if(future != null) {
-					future.complete(retCodes[0]);
+				try {
+					IOResult result = ring.waitCQEntry();
+					CompletableFuture<Long> future = ioRequestFutures.get(result.reqId);
+					if (future != null) {
+						future.complete(result.res);
+					}
+					ring.seenCQEntry(1);
+				}catch (IoURingException e) {
+					e.printStackTrace();
 				}
-				ring.seenCQEntry(1);
 			}
 		}
 	}
