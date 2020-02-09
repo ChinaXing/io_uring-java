@@ -19,7 +19,7 @@ public class IoURingTest {
 //		File dst = File.createTempFile("io-uring-cp", "dst");
 		
 		RandomAccessFile src0 = new RandomAccessFile(src, "r");
-		RandomAccessFile dst0 = new RandomAccessFile(dst, "w");
+		RandomAccessFile dst0 = new RandomAccessFile(dst, "rw");
 		
 		FileDescriptor srcFd = src0.getFD();
 		FileDescriptor dstFd = dst0.getFD();
