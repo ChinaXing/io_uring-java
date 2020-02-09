@@ -163,7 +163,7 @@ JNIEXPORT jint JNICALL Java_org_chinaxing_IoURingNative_waitCQEntryTimeout(JNIEn
 JNIEXPORT jint JNICALL Java_org_chinaxing_IoURingNative_waitCQEntries(JNIEnv * env, jobject self, jlongArray reqIds, jlongArray retCodes, jint n)
 {
     struct io_uring_cqe * cqe_ptr;
-    int ret = io_uring_wait_cqes(GET_RING(env, self), &cqe_ptr, n, NULL, NULL);
+    int ret = io_uring_wait_cqe_nr(GET_RING(env, self), &cqe_ptr, n);
     if (!ret) {
         long reqIds_[1] = { (long)cqe_ptr->user_data };
         long res_[1] = { (long)cqe_ptr->res };

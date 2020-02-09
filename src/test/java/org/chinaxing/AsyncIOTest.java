@@ -5,6 +5,7 @@ import org.junit.Test;
 import java.io.File;
 import java.io.FileDescriptor;
 import java.io.RandomAccessFile;
+import java.util.concurrent.CompletableFuture;
 
 public class AsyncIOTest {
 	@Test
@@ -22,11 +23,15 @@ public class AsyncIOTest {
 		AsyncIO aio = new AsyncIO("test-cp", 20, 0);
 		byte[] buf = new byte[1024];
 		while (true) {
-			Long res = aio.prepareRead(srcFd, 0, buf, 0, 1024).get();
+			CompletableFuture<Long> f = aio.prepareRead(srcFd, 0, buf, 0, 1024);
+			aio.submit();
+			Long res = f.get();
 			if(res == 0) {
 				break;
 			}
-			aio.prepareWrite(dstFd, 0, buf, 0, res.intValue()).get();
+			f = aio.prepareWrite(dstFd, 0, buf, 0, res.intValue());
+			aio.submit();
+			f.get();
 		}
 		dst0.close();
 		src0.close();

@@ -37,6 +37,13 @@ public class AsyncIO {
 		return future;
 	}
 	
+	public CompletableFuture<Long> prepareReads(FileDescriptor fd, long offset, byte[][] buf, int[] bufPos, int[] len) {
+		long reqId = ring.prepareReads(fd, offset, buf, bufPos, len);
+		CompletableFuture<Long> future = new CompletableFuture<>();
+		ioRequestFutures.put(reqId, future);
+		return future;
+	}
+	
 	public CompletableFuture<Long> prepareWrite(FileDescriptor fd, long offset, byte[] buf, int bufPos, int len) {
 		long reqId = ring.prepareWrite(fd, offset, buf, bufPos, len);
 		CompletableFuture<Long> future = new CompletableFuture<>();
@@ -44,8 +51,15 @@ public class AsyncIO {
 		return future;
 	}
 	
-	public void submit() {
-		ring.submit();
+	public CompletableFuture<Long> prepareWrites(FileDescriptor fd, long offset, byte[][] buf, int[] bufPos, int[] len) {
+		long reqId = ring.prepareWrites(fd, offset, buf, bufPos, len);
+		CompletableFuture<Long> future = new CompletableFuture<>();
+		ioRequestFutures.put(reqId, future);
+		return future;
+	}
+	
+	public int submit() {
+		return ring.submit();
 	}
 	
 	public void shutdown() {

@@ -78,16 +78,28 @@ public class IoURing {
     public static class ReadIOCtx {
     	public final long reqId;
     	// user supplied read dest byte[]
-    	public final byte[] outputBytes;
-    	public final int outputOffset;
+    	public final byte[][] outputBytes;
+    	public final int[] outputOffset;
 		// underline directBuffer io_uring used
-    	public final ByteBuffer directBuffer;
+    	public final ByteBuffer[] directBuffer;
 	
-		public ReadIOCtx(long reqId, byte[] buf, int offset, ByteBuffer dBuf) {
+		public ReadIOCtx(long reqId, byte[][] buf, int[] offset, ByteBuffer[] dBuf) {
 			this.reqId = reqId;
 			this.outputBytes = buf;
 			this.outputOffset = offset;
 			this.directBuffer = dBuf;
+		}
+	
+		public void prepareResult(long res) {
+			long remain = res;
+			for(int i=0; i< directBuffer.length; i++) {
+				long dl = directBuffer[i].capacity();
+				long cl = Math.min(remain, dl);
+				directBuffer[i].get(outputBytes[i], outputOffset[i], (int) cl);
+				if((remain -= cl) <= 0) {
+					break;
+				}
+			}
 		}
 	}
  
@@ -148,9 +160,24 @@ public class IoURing {
 			dBuf.cleaner().clean();
 			throw new PrepareRWException("ret: " + ret);
 		}
-		readIOCtxMap.put(reqId, new ReadIOCtx(reqId, bytes, bufPos, buf));
+		readIOCtxMap.put(reqId, new ReadIOCtx(reqId, new byte[][]{bytes}, new int[]{ bufPos} , new ByteBuffer[]{ buf }));
 		return reqId;
 	}
+	
+	public long prepareReads(FileDescriptor fd, long offset, byte[][] bytes, int[] bufPos, int[] len) {
+		int fd0 = getFd(fd);
+		long reqId = requestID.incrementAndGet();
+		long[] bas = new long[bytes.length];
+		ByteBuffer[] dbs = prepareDirectBuf(false, bytes, bufPos, len, bas);
+		int ret = _native.prepareReads(reqId, 0, fd0, bas, len, offset);
+		if(ret != 0) {
+			freeDirectBuffer(dbs);
+			throw new PrepareRWException("ret: " + ret);
+		}
+		readIOCtxMap.put(reqId, new ReadIOCtx(reqId, bytes, bufPos, dbs));
+		return reqId;
+	}
+	
 	
 	public long prepareWrite(FileDescriptor fd, long offset, byte[] bytes, int bufPos, int len) {
 		int fd0 = getFd(fd);
@@ -165,12 +192,28 @@ public class IoURing {
 		return reqId;
 	}
 	
+	public long prepareWrites(FileDescriptor fd, long offset, byte[][] bytes, int[] bufPos, int[] len) {
+		int fd0 = getFd(fd);
+		long reqId = requestID.incrementAndGet();
+		long[] bas = new long[bytes.length];
+		ByteBuffer[] dbs = prepareDirectBuf(true, bytes, bufPos, len, bas);
+		int ret = _native.prepareWrites(reqId, 0, fd0, bas, len, offset);
+		if(ret != 0) {
+			freeDirectBuffer(dbs);
+			throw new PrepareRWException("ret: " + ret);
+		}
+		return reqId;
+	}
 	
-	public void submit() {
+	
+	
+	
+	public int submit() {
      	int ret = _native.submit();
      	if(ret != 0) {
      		throw new SubmitException("ret: " + ret);
 		}
+		return ret;
      }
      
      public IOResult waitCQEntry() {
@@ -220,9 +263,30 @@ public class IoURing {
 		 ReadIOCtx ctx = readIOCtxMap.remove(ioResult.reqId);
 		 if(ctx != null) {
 		 	if(ioResult.res > 0) {
-				ctx.directBuffer.get(ctx.outputBytes, ctx.outputOffset, (int)ioResult.res);
+		 		ctx.prepareResult(ioResult.res);
 			}
-			 ((DirectBuffer)ctx.directBuffer).cleaner().clean();
+			freeDirectBuffer(ctx.directBuffer);
 		 }
      }
+     
+     private ByteBuffer[] prepareDirectBuf(boolean copy, byte[][] bytes, int[] bufPos, int[] len, long[] bas) {
+     	 int cnt = bytes.length;
+		 ByteBuffer[] dbs = new ByteBuffer[cnt];
+		 for(int i=0; i< cnt; i++) {
+			 byte[] b = bytes[i];
+			 int bl = len[i];
+			 ByteBuffer db = dbs[i] = ByteBuffer.allocateDirect(bl);
+			 bas[i] = ((DirectBuffer)db).address();
+			 if (copy) {
+			 	db.put(b, bufPos[i], len[i]);
+			 }
+		 }
+		 return dbs;
+     }
+	
+	private void freeDirectBuffer(ByteBuffer[] dbs) {
+		for(int i=0; i< dbs.length; i++ ) {
+			((DirectBuffer)dbs[i]).cleaner().clean();
+		}
+	}
 }
