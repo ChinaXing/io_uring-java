@@ -209,7 +209,11 @@ public class IoURing {
 	
 	
 	public int submit() {
-     	return _native.submit();
+     	int ret = _native.submit();
+     	if(ret < 0) {
+     		throw new SubmitException("ret: " + ret);
+		}
+		return ret;
      }
      
      public IOResult waitCQEntry() {
