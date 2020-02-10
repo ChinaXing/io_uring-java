@@ -29,58 +29,62 @@ public class AsyncIO {
 		ring = new IoURing(queueDepth, flags);
 		new IoCompletionLoopThread().start();
 	}
-	
+
 	public CompletableFuture<Long> prepareRead(FileDescriptor fd, long offset, byte[] buf, int bufPos, int len) {
 		long reqId = ring.prepareRead(fd, offset, buf, bufPos, len);
 		CompletableFuture<Long> future = new CompletableFuture<>();
 		ioRequestFutures.put(reqId, future);
 		return future;
 	}
-	
+
 	public CompletableFuture<Long> prepareReads(FileDescriptor fd, long offset, byte[][] buf, int[] bufPos, int[] len) {
 		long reqId = ring.prepareReads(fd, offset, buf, bufPos, len);
 		CompletableFuture<Long> future = new CompletableFuture<>();
 		ioRequestFutures.put(reqId, future);
 		return future;
 	}
-	
+
 	public CompletableFuture<Long> prepareWrite(FileDescriptor fd, long offset, byte[] buf, int bufPos, int len) {
 		long reqId = ring.prepareWrite(fd, offset, buf, bufPos, len);
 		CompletableFuture<Long> future = new CompletableFuture<>();
 		ioRequestFutures.put(reqId, future);
 		return future;
 	}
-	
+
 	public CompletableFuture<Long> prepareWrites(FileDescriptor fd, long offset, byte[][] buf, int[] bufPos, int[] len) {
 		long reqId = ring.prepareWrites(fd, offset, buf, bufPos, len);
 		CompletableFuture<Long> future = new CompletableFuture<>();
 		ioRequestFutures.put(reqId, future);
 		return future;
 	}
-	
-	public int submit() {
-		return ring.submit();
-	}
-	
-	public void shutdown() {
-		ring.shutdown();
-	}
-	
-	/**
-	 * This eventLoop Poll completion queue
-	 * and complete the waiting futures for each request
-	 */
-	class IoCompletionLoopThread extends Thread {
-		public IoCompletionLoopThread() {
-			super();
+
+    public void seen(int n) {
+        ring.seenCQEntry(n);
+
+    }
+    public int submit() {
+        return ring.submit();
+    }
+
+    public void shutdown() {
+        ring.shutdown();
+    }
+
+    /**
+     * This eventLoop Poll completion queue
+     * and complete the waiting futures for each request
+     */
+    class IoCompletionLoopThread extends Thread {
+        public IoCompletionLoopThread() {
+            super();
 			setName("Io-URing-Completion-Loop-`" + name + "`");
 		}
-		
+
 		@Override
 		public void run() {
 			pollCQ();
 		}
-		
+
 		private void pollCQ() {
 			while (true) {
 				try {
@@ -96,5 +100,5 @@ public class AsyncIO {
 			}
 		}
 	}
-	
+
 }

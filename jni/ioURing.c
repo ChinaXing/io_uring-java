@@ -1,19 +1,28 @@
 #include <stdlib.h>
+#include <errno.h>
 #include "liburing.h"
 #include "ioURing.h"
 
 #define GET_RING(env, self) (struct io_uring*)(*env)->GetLongField(env, self, ring_fid)
-#define GET_SQE(env, self, flags, reqId)                                \
+#define GET_SQE(env, self, flags)                                      \
     struct io_uring_sqe * sqe = io_uring_get_sqe(GET_RING(env, self)); \
-    if(!sqe) return -1; \
-    if (!flags) io_uring_sqe_set_flags(sqe, (unsigned)flags); \
-    io_uring_sqe_set_data(sqe, (void*)reqId);
+    if(!sqe) return -1;                                                \
+    if (!flags) io_uring_sqe_set_flags(sqe, (unsigned)flags)
 
-#define MSEC_TO_TS(ts, msec) \
+#define MSEC_TO_TS(ts, msec)                      \
     do {                                          \
-        ts.tv_sec = msec / 1000;               \
-        ts.tv_nsec = (msec % 1000) * 1000000;  \
-    } while(0);
+        ts.tv_sec = msec / 1000;                  \
+        ts.tv_nsec = (msec % 1000) * 1000000;     \
+    } while(0)
+
+#define SUPPORT_OP_CODE(op_code) (io_uring_probe_p && io_uring_opcode_supported((struct io_uring_probe *)io_uring_probe_p, op_code))
+
+#define BUILD_IO_VEC_1(buf, len)                        \
+    struct iovec* vecs = malloc(sizeof(struct iovec));  \
+    if (!vecs)  return -errno;                          \
+    vecs->iov_base = (void*)buf;                        \
+    vecs->iov_len = (unsigned)len
+
 
 static struct iovec * build_iovecs(JNIEnv *env, jlongArray buffers, jlongArray lens, jsize cnt) {
     struct iovec* vecs = malloc(cnt * sizeof(struct iovec));
@@ -31,10 +40,12 @@ static struct iovec * build_iovecs(JNIEnv *env, jlongArray buffers, jlongArray l
 }
 
 jfieldID ring_fid;
+jlong io_uring_probe_p;
 
 JNIEXPORT void JNICALL Java_org_chinaxing_IoURingNative_initIDs(JNIEnv * env, jclass clz)
 {
     ring_fid = (*env)->GetFieldID(env, clz, "_ring", "J");
+    io_uring_probe_p = (jlong)io_uring_get_probe();
 }
 
 JNIEXPORT jint JNICALL Java_org_chinaxing_IoURingNative_init0(JNIEnv * env, jobject self, jint entries, jlong flags)
@@ -83,54 +94,73 @@ JNIEXPORT jint JNICALL Java_org_chinaxing_IoURingNative_unregisterFiles(JNIEnv *
 
 JNIEXPORT jint JNICALL Java_org_chinaxing_IoURingNative_prepareRead(JNIEnv * env, jobject self, jlong reqId, jlong flags, jint fd, jlong bufptr, jint len, jlong offset)
 {
-    GET_SQE(env, self, flags, reqId);
-    io_uring_prep_read(sqe, (int)fd, (void*) bufptr, (unsigned)len, (off_t)offset);
+    GET_SQE(env, self, flags);
+    if (SUPPORT_OP_CODE(IORING_OP_READ)) {
+        io_uring_prep_read(sqe, (int)fd, (void*) bufptr, (unsigned)len, (off_t)offset);
+    } else {
+        // fallback to readv
+        BUILD_IO_VEC_1(bufptr, len);
+        io_uring_prep_readv(sqe, (int)fd, vecs, 1, (off_t)offset);
+    }
+    io_uring_sqe_set_data(sqe, (void*)reqId);
     return 0;
 }
 
 JNIEXPORT jint JNICALL Java_org_chinaxing_IoURingNative_prepareReads(JNIEnv * env, jobject self, jlong reqId, jlong flags, jint fd, jlongArray bufptrs, jintArray lens, jlong offset)
 {
-    GET_SQE(env, self, flags, reqId);
+    GET_SQE(env, self, flags);
     jsize nr_vecs =  (*env)->GetArrayLength(env, bufptrs);
     struct iovec * vecs = build_iovecs(env, bufptrs, lens, nr_vecs);
     io_uring_prep_readv(sqe, (int)fd, vecs, (unsigned)nr_vecs, (off_t)offset);
+    io_uring_sqe_set_data(sqe, (void*)reqId);
     return 0;
 }
 
 JNIEXPORT jint JNICALL Java_org_chinaxing_IoURingNative_prepareReadFixed(JNIEnv * env, jobject self, jlong reqId, jlong flags, jint fd, jlong bufptr, jint len, jlong offset, jint bufIndex)
 {
-    GET_SQE(env, self, flags, reqId);
+    GET_SQE(env, self, flags);
     io_uring_prep_write_fixed(sqe, (int)fd, (void*)bufptr, (unsigned)len, (off_t)offset, (int) bufIndex);
+    io_uring_sqe_set_data(sqe, (void*)reqId);
     return 0;
 }
 
 JNIEXPORT jint JNICALL Java_org_chinaxing_IoURingNative_prepareWrite(JNIEnv * env, jobject self, jlong reqId, jlong flags, jint fd, jlong bufptr, jint len, jlong offset)
 {
-    GET_SQE(env, self, flags, reqId);
-    io_uring_prep_write(sqe, (int)fd, (void*) bufptr, (unsigned)len, (off_t)offset);
+    GET_SQE(env, self, flags);
+    if (SUPPORT_OP_CODE(IORING_OP_WRITE)) {
+        io_uring_prep_write(sqe, (int)fd, (void*) bufptr, (unsigned)len, (off_t)offset);
+    } else {
+        // fallback to readv
+        BUILD_IO_VEC_1(bufptr, len);
+        io_uring_prep_writev(sqe, (int)fd, vecs, 1, (off_t)offset);
+    }
+    io_uring_sqe_set_data(sqe, (void*)reqId);
     return 0;
 }
 
 JNIEXPORT jint JNICALL Java_org_chinaxing_IoURingNative_prepareWrites(JNIEnv * env, jobject self, jlong reqId, jlong flags, jint fd, jlongArray bufptr, jintArray len, jlong offset)
 {
-    GET_SQE(env, self, flags, reqId);
+    GET_SQE(env, self, flags);
     jsize nr_vecs =  (*env)->GetArrayLength(env, bufptr);
     struct iovec * vecs = build_iovecs(env, bufptr, len, nr_vecs);
     io_uring_prep_writev(sqe, (int)fd, vecs, (unsigned)nr_vecs, (off_t)offset);
+    io_uring_sqe_set_data(sqe, (void*)reqId);
     return 0;
 }
 
 JNIEXPORT jint JNICALL Java_org_chinaxing_IoURingNative_prepareWriteFixed(JNIEnv * env, jobject self, jlong reqId, jlong flags, jint fd, jlong bufptr, jint len, jlong offset, jint bufIndex)
 {
-    GET_SQE(env, self, flags, reqId);
+    GET_SQE(env, self, flags);
     io_uring_prep_write_fixed(sqe, (int)fd, (void*)bufptr, (unsigned)len, (off_t)offset, (int) bufIndex);
+    io_uring_sqe_set_data(sqe, (void*)reqId);
     return 0;
 }
 
 JNIEXPORT jint JNICALL Java_org_chinaxing_IoURingNative_prepareFsync(JNIEnv * env, jobject self, jlong reqId, jlong flags, jint fd, jlong fsyncFlags)
 {
-    GET_SQE(env, self, flags, reqId);
+    GET_SQE(env, self, flags);
     io_uring_prep_fsync((struct io_uring_sqe *)sqe, (int)fd, (unsigned)fsyncFlags);
+    io_uring_sqe_set_data(sqe, (void*)reqId);
     return 0;
 }
 
