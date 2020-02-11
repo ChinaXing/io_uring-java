@@ -8,10 +8,10 @@ for more information see : **_io_uring_**
 Usage
 -----
 
-1. AsyncIO interface
+1. **AsyncIO interface**\
    this interface wrapper IoURing and provide an interface of Asynchronouse io.\
-   use CompletableFuture as a programming Object.
-2. IoURing interface
+   use CompletableFuture as a async programming Object.
+2. **IoURing interface**\
    this interface just provide very basical io_uring interface, it straightforwardly
    expose each primitive to java side.
 
