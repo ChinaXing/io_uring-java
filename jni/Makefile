@@ -1,24 +1,19 @@
-JAVA_HOME=/opt/taobao/java
-CC = gcc
-FLAGS = -std=gnu99 -D_REENTRANT -Wl,-export-dynamic
+JAVA_HOME ?= /opt/taobao/java
+CC ?= clang
+FLAGS = -D_REENTRANT
 INCLUDE = -I . -I ${JAVA_HOME}/include -I ${JAVA_HOME}/include/linux/
 
-all: iouringjni.so
+all: liburingjni.so
 
-ioUring.o: ioURing.c
+install:
+	cp liburingjni.so /usr/lib/
+
+ioURing.o: ioURing.c
 	$(CC) $(FLAGS) $(INCLUDE) -c -fpic $< -o $@
 
-iouringjni.so: ioUring.o
-	$(info LIBURING_DYNAMIC_LINK is ${LIBURING_DYNAMIC_LINK})
-ifeq ($(LIBURING_DYNAMIC_LINK),1)
-	$(CC) -shared -luring -o $@ $<
-else
-	$(CC) -shared -l:liburing.a -o $@ $<
-endif
-
-dynamic	: export LIBURING_DYNAMIC_LINK=1
-dynamic	: iouringjni.so
+liburingjni.so: ioURing.o
+	$(CC) -shared -fpic -luring -o $@ $<
 
 .PHONY : clean
 clean:
-	rm -f ioUring.o iouringjni.so
+	rm -f ioUring.o liburingjni.so

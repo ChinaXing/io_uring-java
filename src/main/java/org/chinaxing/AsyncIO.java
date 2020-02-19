@@ -91,7 +91,7 @@ public class AsyncIO {
 					IOResult result = ring.waitCQEntry();
 					CompletableFuture<Long> future = ioRequestFutures.get(result.reqId);
 					if (future != null) {
-						future.complete(result.res);
+                                            future.complete(result.res);
 					}
 					ring.seenCQEntry(1);
 				}catch (IoURingException e) {
