@@ -18,8 +18,18 @@ Usage
 TODO
 ----
 1. expose more io_uring function.
+   1. timeout
+   2. network
+   3. file open/fallocate/splice etc.
+   4. sqe link : SQE_OP_LINK | SQE_OP_HARD_LINK
+   5. iopoll : IORING_SET_IOPOLL
+   6. sqpoll : SQE_OP_FIXED_FILE - when enable IORING_SET_SQPOLL auto set this flag to sqe
+   7. init queue with params
+   8. expose io_uring_params to java side
 2. refine exception handle.
 3. refine AsyncIO interface.
+4. document.
+5. more comphensive test.
 
 License
 -------
